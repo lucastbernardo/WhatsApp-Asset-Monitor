@@ -15,7 +15,7 @@ Centralizar o monitoramento de saúde, status de conexão e limites de envio (Ti
 
 ##  Tecnologias Utilizadas
 - **Linguagem:** JavaScript / Google Apps Script
-- **Integração:** Meta Graph API (v21.0)
+- **Integração:** Meta Graph API (v22.0)
 - **Interface:** Google Sheets Interface
 
 ##  Estrutura do Painel
