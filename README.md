@@ -10,8 +10,8 @@ Centralizar o monitoramento de saúde, status de conexão e limites de envio (Ti
 - **Diagnóstico Anti-Ban:** Identificação imediata de "Shadow Bans", contas restritas e chips em estado de "Flag".
 - **Sistema X-9 (Histórico):** Registro automático de todas as mudanças de status para auditoria de performance da base.
 - **Cálculo de Saúde da Base:** Indicadores percentuais automáticos sobre a qualidade dos ativos.
-- **Otimização de Performance:** Código fatorado para operar dentro dos limites de cota do Google Apps Script.
-- **Trava de Maturação Inteligente:** Identificação e bloqueio visual azul por 24h.
+- **Otimização de Performance:** Implementação de busca com interrupção imediata (early exit) para garantir que o script não perca tempo processando logs antigos desnecessários.
+- **Trava de Maturação Inteligente:** Identificação e bloqueio visual automático (fundo azul) por 24h para todo chip novo detectado pelo sistema, garantindo o tempo de carência antes do uso.
 
 ##  Tecnologias Utilizadas
 - **Linguagem:** JavaScript / Google Apps Script
@@ -21,7 +21,7 @@ Centralizar o monitoramento de saúde, status de conexão e limites de envio (Ti
 ##  Estrutura do Painel
 O monitoramento é dividido por colunas estratégicas:
 1. **Ativo:** Número do telefone.
-2. **Status:** Diagnóstico visual (🟢 Alta, 🟡 Média, 🔴 Baixa, 🚫 Bloqueado).
+2. **Status:** Diagnóstico visual (🟢 Alta, 🔵 Maturando (24h), 🟡 Média, 🔴 Baixa, 🚫 Bloqueado).
 3. **Messaging Tier:** Limite atual de disparos (1k, 10k, 100k ou Ilimitado).
 
 ---
