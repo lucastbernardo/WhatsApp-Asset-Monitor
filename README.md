@@ -11,6 +11,7 @@ Centralizar o monitoramento de saúde, status de conexão e limites de envio (Ti
 - **Sistema X-9 (Histórico):** Registro automático de todas as mudanças de status para auditoria de performance da base.
 - **Cálculo de Saúde da Base:** Indicadores percentuais automáticos sobre a qualidade dos ativos.
 - **Otimização de Performance:** Código fatorado para operar dentro dos limites de cota do Google Apps Script.
+- **Trava de Maturação Inteligente:** Identificação e bloqueio visual azul por 24h.
 
 ##  Tecnologias Utilizadas
 - **Linguagem:** JavaScript / Google Apps Script
