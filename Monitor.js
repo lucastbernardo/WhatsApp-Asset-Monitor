@@ -1,159 +1,148 @@
 /**
- * SISTEMA DE MONITORAMENTO DE ATIVOS WHATSAPP
- * Integração: Meta Graph API
- * Objetivo: Gestão de saúde e status de ativos em múltiplas Business Managers (BMs).
+ * WHATSAPP ASSET MONITOR - META API INTEGRATION
+ * Version: 3.1 (Stable)
+ * Features: Multi-BM Monitoring, Anti-Ban Diagnostics, 24h Maturation Lock, Change Logging.
  */
 
-// Configuração das Business Managers (Substitua pelos seus dados reais)
+// Configuration: Replace with your actual Meta Business IDs and Perpetual Access Tokens
 const BM_CONFIG = [
-  { 
-    id: 'ID_DA_BM_01', 
-    token: 'TOKEN_DE_ACESSO_01', 
-    col: 1, 
-    statusCol: 2, 
-    limitCol: 3, 
-    linResumo: 22 
-  },
-  { 
-    id: 'ID_DA_BM_02', 
-    token: 'TOKEN_DE_ACESSO_02', 
-    col: 5, 
-    statusCol: 6, 
-    limitCol: 7, 
-    linResumo: 13 
-  },
-  { 
-    id: 'ID_DA_BM_03', 
-    token: 'TOKEN_DE_ACESSO_03', 
-    col: 9, 
-    statusCol: 10, 
-    limitCol: 11, 
-    linResumo: 13 
-  }
+  { id: 'YOUR_BM_ID_01', token: 'YOUR_TOKEN_01', col: 1, statusCol: 2, limitCol: 3, linResumo: 22 },
+  { id: 'YOUR_BM_ID_02', token: 'YOUR_TOKEN_02', col: 5, statusCol: 6, limitCol: 7, linResumo: 13 },
+  { id: 'YOUR_BM_ID_03', token: 'YOUR_TOKEN_03', col: 9, statusCol: 10, limitCol: 11, linResumo: 13 }
 ];
 
 /**
- * Função principal para atualização dos dados na planilha.
+ * Main function to trigger the update process across all configured BMs.
  */
 function atualizarTudo() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Página1");
   const memoria = mapearStatusAtuais(sheet);
 
-  // Limpeza de intervalos de dados para evitar duplicidade ou dados obsoletos
-  sheet.getRange("A2:C21").clearContent();
-  sheet.getRange("E2:G12").clearContent();
-  sheet.getRange("I2:K12").clearContent();
+  // Clear previous data and background colors for clean UI
+  const dataRanges = ["A2:C21", "E2:G12", "I2:K12"];
+  dataRanges.forEach(range => sheet.getRange(range).clearContent().setBackground(null));
   
   BM_CONFIG.forEach(bm => {
-    // Limpa a área de resumo/rodapé da BM específica
+    // Clear the summary/footer area for each BM
     sheet.getRange(bm.linResumo, bm.col, 6, 2).clearContent();
     processarSafeDeploy(bm, sheet, memoria); 
   });
   
-  // Registro do horário da última operação
-  sheet.getRange("F23").setValue("🕒 Última Atualização: " + Utilities.formatDate(new Date(), "GMT-3", "HH:mm"));
-  SpreadsheetApp.getUi().alert("✅ Planilha atualizada!\n\nVerifique o status 'CONTA RESTRITA' no Gerenciador de Negócios caso identificado.");
+  sheet.getRange("F23").setValue("🕒 Last Update: " + Utilities.formatDate(new Date(), "GMT-3", "HH:mm"));
+  SpreadsheetApp.getUi().alert("✅ Update Complete!\n\nNew assets are highlighted in BLUE (24h Maturation Period).");
 }
 
 /**
- * Processa as informações de cada BM individualmente.
+ * Process individual BM data, checking for bans, quality, and maturation status.
  */
 function processarSafeDeploy(config, sheet, memoria) {
   let contador = { bom: 0, medio: 0, baixo: 0 };
   let linhaAtual = 2;
 
   try {
-    // Consulta inicial: Status da Conta de WhatsApp Business (WABA)
+    // 1. Fetch WABA status for global restriction checks
     let urlWabas = `https://graph.facebook.com/v22.0/${config.id}/owned_whatsapp_business_accounts?fields=id,status&access_token=${config.token}`;
     let resWabas = JSON.parse(UrlFetchApp.fetch(urlWabas).getContentText());
 
     resWabas.data.forEach(waba => {
-      // Identifica se a conta possui restrições de política ou desativação global
       let contaBloqueada = (waba.status === "DISABLED" || waba.status === "RESTRICTED");
 
-      // Consulta de detalhes dos números de telefone vinculados à WABA
+      // 2. Fetch individual phone number details
       let urlPhones = `https://graph.facebook.com/v22.0/${waba.id}/phone_numbers?fields=display_phone_number,quality_rating,status,messaging_limit_tier&access_token=${config.token}`;
       let resPhones = JSON.parse(UrlFetchApp.fetch(urlPhones).getContentText());
 
       if (resPhones.data) {
         resPhones.data.forEach(chip => {
-          let num = chip.display_phone_number || "S/N";
-          let q = (chip.quality_rating || "").toUpperCase();
-          let s = (chip.status || "UNKNOWN").toUpperCase();
+          let num = chip.display_phone_number || "N/A";
+          let quality = (chip.quality_rating || "").toUpperCase();
+          let statusMeta = (chip.status || "UNKNOWN").toUpperCase();
           
-          let statusAntigo = memoria[num] || "⚪ S/ INFO";
+          let statusAntigo = memoria[num] || "NOVO_SISTEMA";
           let statusFinal = "";
-          
-          // Lógica de Prioridade de Status
+          let limitFinal = "";
+          let corStatus = null;
+
+          // Maturation Logic (24h Check)
+          let dataCadastro = buscarIdadeNoHistorico(num);
+          let agora = new Date();
+          const vinteQuatroHorasMs = 24 * 60 * 60 * 1000;
+          let emMaturacao = dataCadastro && (agora - dataCadastro < vinteQuatroHorasMs);
+
+          // Priority Diagnostic Logic
           if (contaBloqueada) {
             statusFinal = "🚫 CONTA RESTRITA (BAN)";
+            limitFinal = "⚠️ TOTAL RISK";
             contador.baixo++;
           } 
-          else if (["FLAGGED", "BANNED", "RESTRICTED", "BLOCKED"].includes(s)) {
-            statusFinal = "🚫 BLOQUEADO / FLAG";
+          else if (["FLAGGED", "BANNED", "RESTRICTED", "BLOCKED"].includes(statusMeta)) {
+            statusFinal = "🚫 BLOCKED / FLAG";
+            limitFinal = "⚠️ TOTAL RISK";
             contador.baixo++;
           } 
-          else if (q.includes("HIGH") || q.includes("GREEN") || s === "CONNECTED") {
+          else if (statusAntigo === "NOVO_SISTEMA" && !dataCadastro) {
+            statusFinal = "🆕 NOVO (AGUARDAR 24H)";
+            limitFinal = "⏳ MATURATING";
+            corStatus = "#cfe2f3"; 
+            contador.bom++;
+            registrarMudancaNoHistorico(num, "🆕 NOVO CHIP", "🟢 CADASTRADO (Início 24h)", config.id);
+          }
+          else if (emMaturacao) {
+            statusFinal = "⏳ MATURANDO (24H)";
+            limitFinal = "⏳ AGUARDAR";
+            corStatus = "#cfe2f3";
+            contador.bom++;
+          }
+          else if (quality.includes("HIGH") || quality.includes("GREEN") || statusMeta === "CONNECTED") {
             statusFinal = "🟢 ALTA (SEGURO)";
+            limitFinal = defineTier(chip.messaging_limit_tier);
             contador.bom++;
           } 
-          else if (q.includes("MEDIUM") || q.includes("YELLOW")) {
+          else if (quality.includes("MEDIUM") || quality.includes("YELLOW")) {
             statusFinal = "🟡 MÉDIA (ATENÇÃO)";
+            limitFinal = defineTier(chip.messaging_limit_tier);
             contador.medio++;
           } 
           else {
             statusFinal = "🔴 BAIXA (PERIGO)";
+            limitFinal = defineTier(chip.messaging_limit_tier);
             contador.baixo++;
           }
 
-          // Verificação de Limites de Mensagens (Tiers)
-          let tier = chip.messaging_limit_tier;
-          let limitFinal = "✅ LIBERADO (1K)"; 
-          if (tier) {
-            if (tier.includes("TIER_10K")) limitFinal = "🔥 LIBERADO (10K)";
-            else if (tier.includes("TIER_100K")) limitFinal = "🚀 LIBERADO (100K)";
-            else if (tier.includes("UNLIMITED")) limitFinal = "👑 ILIMITADO";
-          }
-          if (statusFinal.includes("CONTA RESTRITA") || statusFinal.includes("BLOQUEADO")) {
-            limitFinal = "⚠️ RISCO TOTAL";
+          // Log status changes for non-new assets
+          if (statusAntigo !== "NOVO_SISTEMA" && statusFinal !== statusAntigo && !emMaturacao) {
+              registrarMudancaNoHistorico(num, statusAntigo, statusFinal, config.id);
           }
 
-          // Registro de mudanças no Histórico (Auditoria)
-          if (statusAntigo !== "⚪ S/ INFO" && statusFinal !== statusAntigo) {
-             registrarMudancaNoHistorico(num, statusAntigo, statusFinal, config.id);
-          }
-
-          // Inserção dos dados nas células correspondentes
+          // Write data to sheet
           sheet.getRange(linhaAtual, config.col).setValue("'" + num);
-          sheet.getRange(linhaAtual, config.statusCol).setValue(statusFinal);
+          let celStatus = sheet.getRange(linhaAtual, config.statusCol);
+          celStatus.setValue(statusFinal);
+          if (corStatus) celStatus.setBackground(corStatus);
+          
           sheet.getRange(linhaAtual, config.limitCol).setValue(limitFinal);
           linhaAtual++;
         });
       }
     });
 
-    // Atualização do rodapé com resumo estatístico e saúde da base
+    // Write Summary Statistics
     let r = config.linResumo;
     let total = contador.bom + contador.medio + contador.baixo;
     let porc = total > 0 ? (contador.bom / total) * 100 : 0;
-
-    const resumo = [
-      ["CHIPS BONS", contador.bom],
-      ["CHIPS MÉDIOS", contador.medio],
-      ["CHIPS BAIXOS", contador.baixo],
-      ["TOTAL:", porc.toFixed(0) + "%"]
+    let resumo = [
+      ["GOOD ASSETS", contador.bom],
+      ["MEDIUM ASSETS", contador.medio],
+      ["LOW/BANNED", contador.baixo],
+      ["HEALTH:", porc.toFixed(0) + "%"]
     ];
-
     sheet.getRange(r, config.col, 4, 2).setValues(resumo);
 
-  } catch (e) { 
-    Logger.log("Erro no processamento da BM ID " + config.id + ": " + e.message); 
-  }
+  } catch (e) { Logger.log("Error processing BM " + config.id + ": " + e.message); }
 }
 
 /**
- * Mapeia os status atuais para comparação e histórico.
+ * Maps current sheet data to detect status changes and new arrivals.
  */
 function mapearStatusAtuais(sheet) {
   let mapa = {};
@@ -167,16 +156,45 @@ function mapearStatusAtuais(sheet) {
 }
 
 /**
- * Registra alterações de status em uma aba dedicada para histórico.
+ * Optimized search in history log for asset registration date.
+ */
+function buscarIdadeNoHistorico(numero) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const logSheet = ss.getSheetByName("Historico");
+  if (!logSheet) return null;
+  
+  const dados = logSheet.getDataRange().getValues();
+  const numLimpo = numero.toString().replace(/\D/g, '');
+
+  for (let i = 1; i < dados.length; i++) {
+    let numHistorico = dados[i][1].toString().replace(/\D/g, '');
+    if (numHistorico === numLimpo && dados[i][2] === "🆕 NOVO CHIP") {
+      return new Date(dados[i][0]); 
+    }
+  }
+  return null;
+}
+
+/**
+ * Helper to define Tier display names.
+ */
+function defineTier(tier) {
+  if (!tier) return "✅ LIBERADO (1K)";
+  if (tier.includes("TIER_10K")) return "🔥 LIBERADO (10K)";
+  if (tier.includes("TIER_100K")) return "🚀 LIBERADO (100K)";
+  if (tier.includes("UNLIMITED")) return "👑 UNLIMITED";
+  return "✅ LIBERADO (1K)";
+}
+
+/**
+ * Appends status changes or new registrations to the 'Historico' sheet.
  */
 function registrarMudancaNoHistorico(numero, de, para, bmId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let logSheet = ss.getSheetByName("Historico") || ss.insertSheet("Historico");
-  
   if (logSheet.getLastRow() === 0) {
-    logSheet.appendRow(["Data/Hora", "Número", "Status Antigo", "Status Novo", "BM ID"]);
+    logSheet.appendRow(["Timestamp", "Phone Number", "Previous Status", "New Status", "BM ID"]);
   }
-  
   logSheet.insertRowAfter(1);
   logSheet.getRange(2, 1, 1, 5).setValues([[new Date(), "'" + numero, de, para, "'" + bmId]]);
 }
